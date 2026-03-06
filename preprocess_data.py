@@ -35,25 +35,10 @@ def load_dish_calories(dataset_path: str) -> pd.DataFrame:
     return out
 
 
-def extract_dish_id_from_path(p: Path) -> Optional[str]:
-    """
-    tries to extract dish_id from common Nutrition5k-like path patterns
-    """
-    s = str(p)
-
-    # Case 1: dish_id is the parent directory name: .../overhead/<dish_id>/image.jpg
-    parent = p.parent.name
-    if re.fullmatch(r"\d+", parent):
-        return parent
-    if re.fullmatch(r"dish[_-]?\d+", parent, flags=re.IGNORECASE):
-        return re.sub(r"\D", "", parent)
-
-    # Case 2: dish_id is in filename: <dish_id>.jpg or dish_<dish_id>_*.jpg
-    stem = p.stem  # filename without extension
-    m = re.search(r"(\d+)", stem)
-    if m:
-        return m.group(1)
-
+def extract_dish_id_from_path(p):
+    folder = p.parent.name
+    if folder.startswith("dish_"):
+        return folder.replace("dish_", "")
     return None
 
 
@@ -81,12 +66,12 @@ def collect_image_label_table(
     if use_overhead:
         overhead_dir = imagery_root / "realsense_overhead"
         if overhead_dir.exists():
-            img_paths += list(overhead_dir.rglob("*.jpg")) + list(overhead_dir.rglob("*.png"))
+            img_paths = list(overhead_dir.glob("*/rgb.png"))
 
     if use_side_angles:
         side_dir = imagery_root / "side_angles"
         if side_dir.exists():
-            img_paths += list(side_dir.rglob("*.jpg")) + list(side_dir.rglob("*.png"))
+            img_paths += list(side_dir.rglob("*.jpg"))
 
     rows = []
     for p in img_paths:
