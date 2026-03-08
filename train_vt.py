@@ -1,5 +1,13 @@
+import time
+
 import torch
 import torch.nn as nn
+import pandas as pd
+from torch.utils.data import DataLoader
+from train_cnn import evaluate, set_seed, ensure_dataset, CalorieDataset, regression_metrics, Config, split_df, train_one_epoch
+import os
+from preprocess_data import *
+from torchvision import transforms
 
 # https://arxiv.org/pdf/2010.11929
 
@@ -67,135 +75,149 @@ class VisionTransformer(nn.Module):
     def override_classifier(self, to):
         self.classifier = to
 
-# def main():
-#     cfg = Config()
-#     set_seed(cfg.seed)
+def gen_dataloaders(
+        train_dataframe, 
+        validate_dataframe, 
+        test_dataframe, 
+        train_transform, 
+        evaluation_transform, 
+        conf: Config):
+    # datasets and loaders
+    train_ds = CalorieDataset(train_dataframe, transform=train_transform)
+    val_ds = CalorieDataset(validate_dataframe, transform=evaluation_transform)
+    test_ds = CalorieDataset(test_dataframe, transform=evaluation_transform)
 
-#     os.makedirs(cfg.out_dir, exist_ok=True)
-#     ckpt_path = os.path.join(cfg.out_dir, cfg.ckpt_name)
+    train_loader = DataLoader(
+        train_ds, batch_size=conf.batch_size, shuffle=True,
+        num_workers=conf.num_workers, pin_memory=True
+    )
+    val_loader = DataLoader(
+        val_ds, batch_size=conf.batch_size, shuffle=False,
+        num_workers=conf.num_workers, pin_memory=True
+    )
+    test_loader = DataLoader(
+        test_ds, batch_size=conf.batch_size, shuffle=False,
+        num_workers=conf.num_workers, pin_memory=True
+    )
 
-#     device = "cuda" if torch.cuda.is_available() else "cpu"
-#     print("Device:", device)
+    return train_loader, test_loader, val_loader
 
-#     # ensure dataset is downloaded
-#     dataset_path = ensure_dataset(
-#         cfg.kaggle_repo,
-#         expected_subpaths=["dish_nutrition_values.csv", "imagery"]
-#     )
-#     print("Dataset path:", dataset_path)
+def gen_transforms(conf: Config):
+    # training transforms (augmentation)
+    train_tf = transforms.Compose([
+        transforms.Resize((conf.image_size, conf.image_size)),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomResizedCrop(conf.image_size, scale=(0.8, 1.0)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225]),
+    ])
 
-#     # build (image_path, calories) table, mapping calorie value to dish
-#     labels_csv = os.path.join("data_cache", "labels_built.csv")
-#     os.makedirs("data_cache", exist_ok=True)
+    # validation/test transforms (no augmentation, only resize + normaliza)
+    eval_tf = transforms.Compose([
+        transforms.Resize((conf.image_size, conf.image_size)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225]),
+    ])
+    return train_tf, eval_tf
 
-#     if os.path.exists(labels_csv):
-#         print(f"Using existing labels file: {labels_csv}")
-#         df = pd.read_csv(labels_csv)
-#     else:
-#         print("labels_built.csv not found. Building it from dataset...")
-#         df = collect_image_label_table(
-#             dataset_path,
-#             use_overhead=cfg.use_overhead,
-#             use_side_angles=cfg.use_side_angles,
-#             max_images_total=cfg.max_images_total,
-#             max_images_per_dish=cfg.max_images_per_dish,
-#             seed=cfg.seed
-#     )
-#     df.to_csv(labels_csv, index=False)
-#     print(f"Saved labels to: {labels_csv}")
+def main():
+    cfg = Config(out_dir="runs/vit_mod.txt")
+    set_seed(cfg.seed)
 
-#     print(f"Built dataset table with {len(df)} rows")
-#     print(df.head())
+    os.makedirs(cfg.out_dir, exist_ok=True)
+    ckpt_path = os.path.join(cfg.out_dir, cfg.ckpt_name)
 
-#     # train/val/test split
-#     train_df, val_df, test_df = split_df(df, seed=cfg.seed, train_frac=0.8, val_frac=0.1)
-#     print(f"Split sizes -> train: {len(train_df)} val: {len(val_df)} test: {len(test_df)}")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print("Device:", device)
 
-#     # training transforms (augmentation)
-#     train_tf = transforms.Compose([
-#         transforms.Resize((cfg.image_size, cfg.image_size)),
-#         transforms.RandomHorizontalFlip(p=0.5),
-#         transforms.RandomResizedCrop(cfg.image_size, scale=(0.8, 1.0)),
-#         transforms.ToTensor(),
-#         transforms.Normalize(mean=[0.485, 0.456, 0.406],
-#                              std=[0.229, 0.224, 0.225]),
-#     ])
+    # ensure dataset is downloaded
+    dataset_path = ensure_dataset(
+        cfg.kaggle_repo,
+        expected_subpaths=["dish_nutrition_values.csv", "imagery"]
+    )
+    print("Dataset path:", dataset_path)
 
-#     # validation/test transforms (no augmentation, only resize + normaliza)
-#     eval_tf = transforms.Compose([
-#         transforms.Resize((cfg.image_size, cfg.image_size)),
-#         transforms.ToTensor(),
-#         transforms.Normalize(mean=[0.485, 0.456, 0.406],
-#                              std=[0.229, 0.224, 0.225]),
-#     ])
+    # build (image_path, calories) table, mapping calorie value to dish
+    labels_csv = os.path.join("data_cache", "labels_built.csv")
+    os.makedirs("data_cache", exist_ok=True)
 
-#     # datasets and loaders
-#     train_ds = CalorieDataset(train_df, transform=train_tf)
-#     val_ds = CalorieDataset(val_df, transform=eval_tf)
-#     test_ds = CalorieDataset(test_df, transform=eval_tf)
+    if os.path.exists(labels_csv):
+        print(f"Using existing labels file: {labels_csv}")
+        df = pd.read_csv(labels_csv)
+    else:
+        print("labels_built.csv not found. Building it from dataset...")
+        df = collect_image_label_table(
+            dataset_path,
+            use_overhead=cfg.use_overhead,
+            use_side_angles=cfg.use_side_angles,
+            max_images_total=cfg.max_images_total,
+            max_images_per_dish=cfg.max_images_per_dish,
+            seed=cfg.seed
+    )
+    df.to_csv(labels_csv, index=False)
+    print(f"Saved labels to: {labels_csv}")
 
-#     train_loader = DataLoader(
-#         train_ds, batch_size=cfg.batch_size, shuffle=True,
-#         num_workers=cfg.num_workers, pin_memory=True
-#     )
-#     val_loader = DataLoader(
-#         val_ds, batch_size=cfg.batch_size, shuffle=False,
-#         num_workers=cfg.num_workers, pin_memory=True
-#     )
-#     test_loader = DataLoader(
-#         test_ds, batch_size=cfg.batch_size, shuffle=False,
-#         num_workers=cfg.num_workers, pin_memory=True
-#     )
+    print(f"Built dataset table with {len(df)} rows")
+    print(df.head())
 
-#     model = build_cnn_regressor(cfg.backbone, pretrained=cfg.pretrained).to(device)
-#     loss_fn = nn.MSELoss()
-#     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
+    # train/val/test split
+    train_df, val_df, test_df = split_df(df, seed=cfg.seed, train_frac=0.8, val_frac=0.1)
+    print(f"Split sizes -> train: {len(train_df)} val: {len(val_df)} test: {len(test_df)}")
 
-#     best_val = float("inf")
+    train_transform, eval_transform = gen_transforms(cfg)
+    train_loader, val_loader, test_loader = gen_dataloaders(train_df, val_df, test_df, train_transform, eval_transform, cfg)
+    
+    model = VisionTransformer() # todo - set up model params
+    loss_fn = nn.MSELoss()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
 
-#     # training loop
-#     for epoch in range(1, cfg.epochs + 1):
-#         t0 = time.time()
+    best_val = float("inf")
 
-#         train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, device)
-#         val_loss, val_mets = evaluate(model, val_loader, loss_fn, device)
+    # training loop
+    for epoch in range(1, cfg.epochs + 1):
+        t0 = time.time()
 
-#         dt = time.time() - t0
-#         print(f"\nEpoch {epoch}/{cfg.epochs}  ({dt:.1f}s)")
-#         print(f"  Train MSE: {train_loss:.4f}")
-#         print(f"  Val   MSE: {val_loss:.4f}")
-#         print(f"  Val metrics: {val_mets}")
+        train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, device)
+        val_loss, val_mets = evaluate(model, val_loader, loss_fn, device)
 
-#         if val_loss < best_val:
-#             best_val = val_loss
-#             torch.save(
-#                 {
-#                     "model_state": model.state_dict(),
-#                     "config": cfg.__dict__,
-#                     "val_loss": val_loss,
-#                     "val_metrics": val_mets,
-#                 },
-#                 ckpt_path
-#             )
-#             print(f"  ✓ Saved best checkpoint to {ckpt_path}")
+        dt = time.time() - t0
+        print(f"\nEpoch {epoch}/{cfg.epochs}  ({dt:.1f}s)")
+        print(f"  Train MSE: {train_loss:.4f}")
+        print(f"  Val   MSE: {val_loss:.4f}")
+        print(f"  Val metrics: {val_mets}")
 
-#     # test evaluation
-#     ckpt = torch.load(ckpt_path, map_location=device)
-#     model.load_state_dict(ckpt["model_state"])
+        if val_loss < best_val:
+            best_val = val_loss
+            torch.save(
+                {
+                    "model_state": model.state_dict(),
+                    "config": cfg.__dict__,
+                    "val_loss": val_loss,
+                    "val_metrics": val_mets,
+                },
+                ckpt_path
+            )
+            print(f"  ✓ Saved best checkpoint to {ckpt_path}")
 
-#     test_loss, test_mets = evaluate(model, test_loader, loss_fn, device)
-#     print("\nTest Results")
-#     print(f"Test MSE: {test_loss:.4f}")
-#     print(f"Test metrics: {test_mets}")
+    # test evaluation
+    ckpt = torch.load(ckpt_path, map_location=device)
+    model.load_state_dict(ckpt["model_state"])
 
-#     with open(os.path.join(cfg.out_dir, "test_metrics.txt"), "w") as f:
-#         f.write(f"Test MSE: {test_loss:.6f}\n")
-#         for k, v in test_mets.items():
-#             f.write(f"{k}: {v:.6f}\n")
+    test_loss, test_mets = evaluate(model, test_loader, loss_fn, device)
+    print("\nTest Results")
+    print(f"Test MSE: {test_loss:.4f}")
+    print(f"Test metrics: {test_mets}")
 
-#     print("Saved test metrics to:", os.path.join(cfg.out_dir, "test_metrics.txt"))
+    with open(os.path.join(cfg.out_dir, "test_metrics.txt"), "w") as f:
+        f.write(f"Test MSE: {test_loss:.6f}\n")
+        for k, v in test_mets.items():
+            f.write(f"{k}: {v:.6f}\n")
 
-# if __name__ == "__main__":
-#     main()
+    print("Saved test metrics to:", os.path.join(cfg.out_dir, "test_metrics.txt"))
+
+if __name__ == "__main__":
+    main()
     
     
