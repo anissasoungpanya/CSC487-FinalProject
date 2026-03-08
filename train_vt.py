@@ -123,7 +123,7 @@ def gen_transforms(conf: Config):
     return train_tf, eval_tf
 
 def main():
-    cfg = Config(out_dir="runs/vit_mod.txt")
+    cfg = Config(out_dir="runs/vit_mod")
     set_seed(cfg.seed)
 
     os.makedirs(cfg.out_dir, exist_ok=True)
@@ -154,8 +154,7 @@ def main():
             use_side_angles=cfg.use_side_angles,
             max_images_total=cfg.max_images_total,
             max_images_per_dish=cfg.max_images_per_dish,
-            seed=cfg.seed
-    )
+            seed=cfg.seed)
     df.to_csv(labels_csv, index=False)
     print(f"Saved labels to: {labels_csv}")
 
@@ -169,7 +168,7 @@ def main():
     train_transform, eval_transform = gen_transforms(cfg)
     train_loader, val_loader, test_loader = gen_dataloaders(train_df, val_df, test_df, train_transform, eval_transform, cfg)
     
-    model = VisionTransformer() # todo - set up model params
+    model = VisionTransformer(num_classes = 1)
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
 
@@ -178,6 +177,8 @@ def main():
     # training loop
     for epoch in range(1, cfg.epochs + 1):
         t0 = time.time()
+
+        print(f"Starting train")
 
         train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, device)
         val_loss, val_mets = evaluate(model, val_loader, loss_fn, device)
