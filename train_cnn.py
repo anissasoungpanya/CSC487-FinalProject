@@ -29,31 +29,22 @@ def set_seed(seed: int = 42) -> None:
 
 # download dataset
 def ensure_dataset(repo_id: str, expected_subpaths=None) -> str:
-    """
-    Ensures the dataset exists locally.
-    KaggleHub already caches downloads, but this adds a quick check so your script
-    doesn't even attempt a download if we can find an existing local path.
+    import os
+    import kagglehub
 
-    expected_subpaths: list of relative paths we expect inside dataset root, e.g.
-      ["dish_nutrition_values.csv", "imagery"]
-    """
     path = kagglehub.dataset_download(repo_id)
+    print("Dataset path:", path)
 
     if expected_subpaths:
-        ok = True
         for sp in expected_subpaths:
-            if not os.path.exists(os.path.join(path, sp)):
-                ok = False
-                break
-        if not ok:
-            raise RuntimeError(
-                f"Dataset path returned but expected files not found.\n"
-                f"Path: {path}\n"
-                f"Missing one of: {expected_subpaths}\n"
-                f"Try deleting the kagglehub cache for this dataset and rerun."
-            )
+            full = os.path.join(path, sp)
+            if not os.path.exists(full):
+                raise RuntimeError(
+                    f"Dataset downloaded, but expected path not found: {full}"
+                )
 
     return path
+   
 
 
 # dataset for PyTorch

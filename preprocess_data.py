@@ -1,44 +1,57 @@
-import os
-import re
 import pandas as pd
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
+
 
 def load_dish_calories(dataset_path: str) -> pd.DataFrame:
-    """
-    returns DataFrame with columns: dish_id, calories
-    """
-    csv_path = os.path.join(dataset_path, "dish_nutrition_values.csv")
+    csv_path = Path(dataset_path) / "dish_nutrition_values.csv"
     df = pd.read_csv(csv_path)
 
-    col_candidates = {
-        "dish_id": ["dish_id", "dish", "id"],
-        "calories": ["calories", "kcal", "energy", "calorie"],
-    }
+    dish_col = None
+    cal_col = None
 
-    def find_col(df_cols, options):
-        for c in options:
-            if c in df_cols:
-                return c
-        return None
+    for c in ["dish_id", "dish", "id", "DishID", "dishId"]:
+        if c in df.columns:
+            dish_col = c
+            break
 
-    dish_col = find_col(df.columns, col_candidates["dish_id"])
-    cal_col = find_col(df.columns, col_candidates["calories"])
+    for c in ["calories", "kcal", "energy", "calorie", "total_calories"]:
+        if c in df.columns:
+            cal_col = c
+            break
 
-    if dish_col is None or cal_col is None:
-        raise ValueError(f"Could not find dish_id/calories columns in {csv_path}. Columns: {df.columns.tolist()}")
+    if dish_col is None:
+        dish_col = df.columns[0]
+
+    if cal_col is None:
+        for c in df.columns:
+            if "cal" in c.lower():
+                cal_col = c
+                break
+
+    if cal_col is None:
+        raise ValueError(f"Could not find calories column. Columns: {df.columns.tolist()}")
 
     out = df[[dish_col, cal_col]].copy()
     out.columns = ["dish_id", "calories"]
-    out["dish_id"] = out["dish_id"].astype(str)
-    out["calories"] = out["calories"].astype(float)
+
+    out["dish_id"] = (
+        out["dish_id"]
+        .astype(str)
+        .str.replace("dish_", "", regex=False)
+        .str.replace(".0", "", regex=False)
+        .str.strip()
+    )
+    out["calories"] = pd.to_numeric(out["calories"], errors="coerce")
+    out = out.dropna(subset=["calories"])
+
     return out
 
 
-def extract_dish_id_from_path(p):
+def extract_dish_id_from_path(p: Path) -> Optional[str]:
     folder = p.parent.name
     if folder.startswith("dish_"):
-        return folder.replace("dish_", "")
+        return folder.replace("dish_", "").strip()
     return None
 
 
@@ -48,59 +61,62 @@ def collect_image_label_table(
     use_side_angles: bool = False,
     max_images_total: Optional[int] = 20000,
     max_images_per_dish: int = 2,
-    seed: int = 42
+    seed: int = 42,
 ) -> pd.DataFrame:
-    """
-    Builds a table with columns: image_path, calories, dish_id
-    - max_images_total: cap overall images for speed (None = no cap)
-    - max_images_per_dish: if side_angles produces many frames, cap per dish
-    """
-    rng = pd.Series(range(10))  # placeholder
-
+    root = Path(dataset_path)
     dish_cal = load_dish_calories(dataset_path)
     dish_to_cal = dict(zip(dish_cal["dish_id"], dish_cal["calories"]))
 
-    img_paths: List[Path] = []
-    imagery_root = Path(dataset_path) / "imagery"
+    rows = []
 
     if use_overhead:
-        overhead_dir = imagery_root / "realsense_overhead"
-        if overhead_dir.exists():
-            img_paths = list(overhead_dir.glob("*/rgb.png"))
+        overhead_dir = root / "imagery" / "realsense_overhead"
+        rgb_paths = list(overhead_dir.glob("*/rgb.png"))
+        print(f"Found {len(rgb_paths)} overhead rgb images")
+
+        for p in rgb_paths:
+            dish_id = extract_dish_id_from_path(p)
+            if dish_id is None:
+                continue
+            if dish_id not in dish_to_cal:
+                continue
+
+            rows.append({
+                "image_path": str(p),
+                "dish_id": dish_id,
+                "calories": dish_to_cal[dish_id],
+            })
 
     if use_side_angles:
-        side_dir = imagery_root / "side_angles"
-        if side_dir.exists():
-            img_paths += list(side_dir.rglob("*.jpg"))
+        side_dir = root / "imagery" / "side_angles"
+        side_paths = list(side_dir.rglob("*.jpg")) + list(side_dir.rglob("*.png"))
+        print(f"Found {len(side_paths)} side-angle images before filtering")
 
-    rows = []
-    for p in img_paths:
-        dish_id = extract_dish_id_from_path(p)
-        if dish_id is None:
-            continue
-        if dish_id not in dish_to_cal:
-            continue
-        rows.append({"image_path": str(p), "dish_id": dish_id, "calories": dish_to_cal[dish_id]})
+        per_dish_counts = {}
+        for p in side_paths:
+            dish_id = extract_dish_id_from_path(p)
+            if dish_id is None or dish_id not in dish_to_cal:
+                continue
+
+            count = per_dish_counts.get(dish_id, 0)
+            if count >= max_images_per_dish:
+                continue
+
+            rows.append({
+                "image_path": str(p),
+                "dish_id": dish_id,
+                "calories": dish_to_cal[dish_id],
+            })
+            per_dish_counts[dish_id] = count + 1
 
     df = pd.DataFrame(rows)
+    print(f"Matched {len(df)} image/label pairs")
+
     if df.empty:
-        raise RuntimeError(
-            "No image/label pairs created. You likely need to tweak extract_dish_id_from_path() "
-            "based on the actual filenames/folders."
-        )
+        raise RuntimeError("No image/label pairs created.")
 
-    # if side angles included, cap per dish to avoid 100s of similar frames
-    if use_side_angles and max_images_per_dish is not None:
-        df = (
-            df.groupby("dish_id", group_keys=False)
-              .apply(lambda g: g.sample(n=min(len(g), max_images_per_dish), random_state=seed))
-              .reset_index(drop=True)
-        )
-
-    # shuffle
     df = df.sample(frac=1.0, random_state=seed).reset_index(drop=True)
 
-    # cap overall images
     if max_images_total is not None and len(df) > max_images_total:
         df = df.iloc[:max_images_total].copy()
 
