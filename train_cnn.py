@@ -159,6 +159,11 @@ def evaluate(model, loader, loss_fn, device) -> Tuple[float, Dict[str, float]]:
     avg_loss = total / max(n, 1)
     pred_cat = torch.cat(preds, dim=0)
     true_cat = torch.cat(trues, dim=0)
+
+    # convert predictions back from log scale
+    pred_cat = torch.expm1(pred_cat)
+    true_cat = torch.expm1(true_cat)
+
     mets = regression_metrics(pred_cat, true_cat)
     return avg_loss, mets
 
@@ -236,6 +241,10 @@ def main():
             max_images_per_dish=cfg.max_images_per_dish,
             seed=cfg.seed
     )
+        
+    # Log-transform calories for training stability
+    df["calories"] = np.log1p(df["calories"])
+
     df.to_csv(labels_csv, index=False)
     print(f"Saved labels to: {labels_csv}")
 
