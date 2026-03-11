@@ -10,12 +10,12 @@ def load_dish_calories(dataset_path: str) -> pd.DataFrame:
     dish_col = None
     cal_col = None
 
-    for c in ["dish_id", "dish", "id", "DishID", "dishId"]:
+    for c in "dish_id":
         if c in df.columns:
             dish_col = c
             break
 
-    for c in ["calories", "kcal", "energy", "calorie", "total_calories"]:
+    for c in "calories":
         if c in df.columns:
             cal_col = c
             break

@@ -20,14 +20,12 @@ import kagglehub
 
 from preprocess_data import collect_image_label_table
 
-# reproducibility
 def set_seed(seed: int = 42) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-# download dataset
 def ensure_dataset(repo_id: str, expected_subpaths=None) -> str:
     import os
     import kagglehub
@@ -44,10 +42,7 @@ def ensure_dataset(repo_id: str, expected_subpaths=None) -> str:
                 )
 
     return path
-   
 
-
-# dataset for PyTorch
 class CalorieDataset(Dataset):
     """
     Expects a DataFrame with columns:
@@ -73,7 +68,6 @@ class CalorieDataset(Dataset):
         y = torch.tensor([calories], dtype=torch.float32)
         return img, y
 
-# metrics
 @torch.no_grad()
 def regression_metrics(pred: torch.Tensor, target: torch.Tensor) -> Dict[str, float]:
     pred = pred.squeeze(1).cpu().numpy()
@@ -191,7 +185,7 @@ class Config:
 
     # training config
     image_size: int = 224
-    backbone: str = "resnet18"             # "resnet18" or "resnet50"
+    backbone: str = "resnet18"             
     pretrained: bool = True
 
     batch_size: int = 32
@@ -217,7 +211,6 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print("Device:", device)
 
-    # ensure dataset is downloaded
     dataset_path = ensure_dataset(
         cfg.kaggle_repo,
         expected_subpaths=["dish_nutrition_values.csv", "imagery"]
@@ -242,7 +235,7 @@ def main():
             seed=cfg.seed
     )
         
-    # Log-transform calories for training stability
+    # log-transform calories 
     df["calories"] = np.log1p(df["calories"])
 
     df.to_csv(labels_csv, index=False)
@@ -251,7 +244,6 @@ def main():
     print(f"Built dataset table with {len(df)} rows")
     print(df.head())
 
-    # train/val/test split
     train_df, val_df, test_df = split_df(df, seed=cfg.seed, train_frac=0.8, val_frac=0.1)
     print(f"Split sizes -> train: {len(train_df)} val: {len(val_df)} test: {len(test_df)}")
 
