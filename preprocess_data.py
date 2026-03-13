@@ -48,10 +48,13 @@ def load_dish_calories(dataset_path: str) -> pd.DataFrame:
     return out
 
 
-def extract_dish_id_from_path(p: Path) -> Optional[str]:
-    folder = p.parent.name
-    if folder.startswith("dish_"):
-        return folder.replace("dish_", "").strip()
+def extract_dish_id_from_path(p):
+    """
+    Scans the path for a folder starting with 'dish_' and returns the full name.
+    """
+    for part in p.parts:
+        if part.startswith("dish_"):
+            return part
     return None
 
 

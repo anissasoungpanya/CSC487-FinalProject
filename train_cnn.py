@@ -157,7 +157,7 @@ def evaluate(model, loader, loss_fn, device) -> Tuple[float, Dict[str, float]]:
     # convert predictions back from log scale
     pred_cat = torch.expm1(pred_cat)
     true_cat = torch.expm1(true_cat)
-
+    
     mets = regression_metrics(pred_cat, true_cat)
     return avg_loss, mets
 
