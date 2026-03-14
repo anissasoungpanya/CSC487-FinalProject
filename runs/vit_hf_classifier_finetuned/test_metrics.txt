@@ -1,0 +1,10 @@
+Test MSE: 88083.825769
+MAE: 227.842209
+MSE: 88083.828125
+RMSE: 296.789198
+MAPE(%): 533422304.000000
+Within10%(%): 2.153846
+
+
+
+## The above results were using Huggingface's pretrained transformer, then only finetuning the classifier (10 epochs)

@@ -123,10 +123,7 @@ def gen_transforms(conf: Config):
     ])
     return train_tf, eval_tf
 
-def main():
-    cfg = Config(out_dir="runs/vit_mod")
-    set_seed(cfg.seed)
-
+def run_train_and_eval(model, cfg, loss, opt):
     os.makedirs(cfg.out_dir, exist_ok=True)
     ckpt_path = os.path.join(cfg.out_dir, cfg.ckpt_name)
 
@@ -170,10 +167,6 @@ def main():
 
     train_transform, eval_transform = gen_transforms(cfg)
     train_loader, val_loader, test_loader = gen_dataloaders(train_df, val_df, test_df, train_transform, eval_transform, cfg)
-    
-    model = VisionTransformer(num_classes = 1)
-    loss_fn = nn.MSELoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
 
     best_val = float("inf")
 
@@ -183,8 +176,8 @@ def main():
 
         print(f"Starting train")
 
-        train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, device)
-        val_loss, val_mets = evaluate(model, val_loader, loss_fn, device)
+        train_loss = train_one_epoch(model, train_loader, opt, loss, device)
+        val_loss, val_mets = evaluate(model, val_loader, loss, device)
 
         dt = time.time() - t0
         print(f"\nEpoch {epoch}/{cfg.epochs}  ({dt:.1f}s)")
@@ -209,7 +202,7 @@ def main():
     ckpt = torch.load(ckpt_path, map_location=device)
     model.load_state_dict(ckpt["model_state"])
 
-    test_loss, test_mets = evaluate(model, test_loader, loss_fn, device)
+    test_loss, test_mets = evaluate(model, test_loader, loss, device)
     print("\nTest Results")
     print(f"Test MSE: {test_loss:.4f}")
     print(f"Test metrics: {test_mets}")
@@ -220,6 +213,16 @@ def main():
             f.write(f"{k}: {v:.6f}\n")
 
     print("Saved test metrics to:", os.path.join(cfg.out_dir, "test_metrics.txt"))
+
+def main():
+    cfg = Config(out_dir="runs/vit_mod")
+    set_seed(cfg.seed)
+
+    model = VisionTransformer(num_classes = 1)
+    loss_fn = nn.MSELoss()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
+
+    run_train_and_eval(model, cfg, loss_fn, optimizer)
 
 if __name__ == "__main__":
     main()

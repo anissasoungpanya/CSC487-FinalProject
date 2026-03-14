@@ -1,0 +1,9 @@
+Test MSE: 0.125428
+MAE: 50.173420
+MSE: 6262.060547
+RMSE: 79.133182
+MAPE(%): 377017088.000000
+Within10%(%): 26.769231
+
+
+# Huggingface's ViT, fine-tuning all weights, putting calories in log form

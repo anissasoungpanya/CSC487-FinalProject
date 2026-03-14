@@ -1,0 +1,9 @@
+Test MSE: 0.987615
+MAE: 158.003281
+MSE: 53559.636719
+RMSE: 231.429550
+MAPE(%): 930645376.000000
+Within10%(%): 8.000000
+
+
+# Huggingface's ViT, fine-tuning only the classifier, putting calories in log form. Slightly better than other result (vit_hf_classifier_finetuned_wLog)

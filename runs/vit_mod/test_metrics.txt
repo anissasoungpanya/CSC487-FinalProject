@@ -1,0 +1,9 @@
+Test MSE: 65424.566310
+MAE: 182.063492
+MSE: 65424.566406
+RMSE: 255.782264
+MAPE(%): 153.304245
+Within10%(%): 2.469136
+
+
+# the above results were for a ViT from scratch
