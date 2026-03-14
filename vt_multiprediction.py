@@ -8,7 +8,6 @@ from vit_helpers.multi_helpers import evaluate_dual, gen_nutrition_dataloaders, 
 from vit_helpers.preprocess import ensure_dataset, get_df_from_labels
 
 def train_loop(cfg, model, train_loader, val_loader, loss_fn, optimizer, device, ckpt_path):
-    # Track the best MAE instead of the best Loss
     best_mae = float("inf") 
     
     for epoch in range(1, cfg.epochs + 1):
@@ -97,16 +96,16 @@ def main():
     loss_fn = DualNutritionLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
 
-    # train_loop(
-    #     cfg, 
-    #     model, 
-    #     train_loader, 
-    #     val_loader, 
-    #     loss_fn ,
-    #     optimizer, 
-    #     device, 
-    #     ckpt_path
-    # ) 
+    train_loop(
+        cfg, 
+        model, 
+        train_loader, 
+        val_loader, 
+        loss_fn ,
+        optimizer, 
+        device, 
+        ckpt_path
+    ) 
 
     print("\n fine tuning now; unfreezing all of the transformer weights and lowering LR")
     ckpt = torch.load(ckpt_path, map_location=device)
@@ -116,12 +115,12 @@ def main():
     for param in model.vit.parameters():
         param.requires_grad = True
         
-    fine_tune_lr = cfg.lr / 10.0 # or manually set to 1e-5 / 2e-5
+    fine_tune_lr = cfg.lr / 10.0 
     optimizer_ft = torch.optim.AdamW(model.parameters(), lr=fine_tune_lr, weight_decay=cfg.weight_decay)
     
     ft_ckpt_path = os.path.join(cfg.out_dir, "best_model_finetuned.pt")
     
-    # train_loop(cfg, model, train_loader, val_loader, loss_fn, optimizer_ft, device, ft_ckpt_path)
+    train_loop(cfg, model, train_loader, val_loader, loss_fn, optimizer_ft, device, ft_ckpt_path)
 
     test_eval(cfg, model, test_loader, loss_fn, device, ft_ckpt_path, 0.50, "test_eval_50percent")
 
